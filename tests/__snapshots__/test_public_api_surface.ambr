@@ -58,6 +58,8 @@
     'Score',
     'ScoreAnswer',
     'ScoreModel',
+    'SystemOneBatchItem',
+    'SystemOneBatchResponse',
     'SystemOneResponse',
     'TypeSafeAPIConnectionError',
     'TypeSafeAPIError',

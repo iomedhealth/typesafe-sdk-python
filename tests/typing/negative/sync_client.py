@@ -11,3 +11,9 @@ def invalid_arguments(client: TypeSafeClient) -> None:
     client.system_one("x", {}, retry=AsyncRetrying())  # E: Argument `AsyncRetrying` is not assignable to parameter `retry`
     client.system_one("x", {}, response_model=int)  # E: No matching overload
     client.system_one("x", {}, response_model=object())  # E: No matching overload
+
+
+def invalid_batch_arguments(client: TypeSafeClient) -> None:
+    client.system_one_batch([{"state": None, "questions": {}}])  # E: `None` is not assignable to TypedDict key `state`
+    client.system_one_batch([{"questions": {}}])  # E: Missing required key `state` for TypedDict `SystemOneBatchItem`
+    client.system_one_batch([{"state": "x", "questions": {}}], response_model=int)  # E: No matching overload
