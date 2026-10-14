@@ -1,6 +1,6 @@
 """Synchronous API client."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import cached_property
 from types import TracebackType
 from typing import overload
@@ -8,12 +8,13 @@ from typing import overload
 import httpx2
 from typing_extensions import Self
 
+from typesafe_sdk._core.batch_types import SystemOneBatchItem
 from typesafe_sdk._core.client.sync.models import Models
 from typesafe_sdk._core.config import DEFAULT_LIMITS, Config
-from typesafe_sdk._core.endpoints import prepare_system_one
+from typesafe_sdk._core.endpoints import prepare_system_one, prepare_system_one_batch
 from typesafe_sdk._core.json_types import JSONContent, JSONValue
 from typesafe_sdk._core.question_types import Question
-from typesafe_sdk._core.response_types import SystemOneResponse
+from typesafe_sdk._core.response_types import SystemOneBatchResponse, SystemOneResponse
 from typesafe_sdk._core.retry import RetryPolicy, build_tenacity
 from typesafe_sdk._core.transport import Request, ResponseT, send
 
@@ -218,6 +219,108 @@ class TypeSafeClient:
                 timeout,
                 extra_headers,
                 SystemOneResponse if response_model is None else response_model,
+            ),
+            retry=retry,
+        )
+
+    @overload
+    def system_one_batch(
+        self,
+        requests: Sequence[SystemOneBatchItem],
+        *,
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: None = None,
+    ) -> SystemOneBatchResponse: ...
+
+    @overload
+    def system_one_batch(
+        self,
+        requests: Sequence[SystemOneBatchItem],
+        *,
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: type[ResponseT],
+    ) -> ResponseT: ...
+
+    def system_one_batch(
+        self,
+        requests: Sequence[SystemOneBatchItem],
+        *,
+        model: str | None = None,
+        retry: RetryPolicy | None = None,
+        timeout: float | httpx2.Timeout | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, JSONValue | None] | None = None,
+        response_model: type[ResponseT] | None = None,
+    ) -> SystemOneBatchResponse | ResponseT:
+        """Answer named questions about several states in one request.
+
+        !!! note "Self-hosted extension"
+            `POST /v1/systemone/batch` is served by self-hosted System One deployments and is not part
+            of the public TypeSafe AI API; point `base_url` at such a server before calling this method.
+
+        Args:
+            requests: Nonempty list of at most 50 items, each with the `state` and `questions` of a
+                single `system_one` call and an optional per-item `model`.
+            model: Model for items that do not set their own; `None` inherits the client default.
+            retry: An optional retry policy to override the client-level value for this call only.
+            timeout: An optional timeout for http operations to override the client-level value for this call only, in seconds.
+            extra_headers: Additional request headers to set.
+            extra_body: Additional top-level request-body fields, shallow-merged over the body after
+                `requests` is set. Merging is last-write-wins: a `requests` key overrides the items, and
+                object values are replaced rather than deep-merged.
+            response_model: Optional Pydantic `BaseModel` type describing the JSON response body,
+                including any nested answer models.
+
+        Returns:
+            An instance of `response_model`, or `SystemOneBatchResponse` with one `SystemOneResponse`
+            per item, in order, plus the batch model and token usage when no custom model is supplied.
+
+        Raises:
+            TypeSafeError: `requests` is empty or has more than 50 items, or an item has a `None` state,
+                empty questions, a score or choice question with no criteria, or a noul question with
+                neither instructions nor criteria.
+            TypeSafeAPIError: The server returns an unsuccessful HTTP response after any retries.
+            TypeSafeAPIConnectionError: The request cannot connect or times out after any retries.
+            TypeSafeAPIResponseValidationError: The response body does not match the response model.
+
+        Examples:
+            <!-- skip: next -->
+
+            ```python
+            with TypeSafeClient(base_url="https://systemone.example.org") as client:
+                result = client.system_one_batch(
+                    [
+                        {
+                            "state": "I was charged twice. Please help.",
+                            "questions": {"billing": Noul(instructions="Is this about billing?")},
+                        },
+                        {
+                            "state": "The app crashes on launch.",
+                            "questions": {"billing": Noul(instructions="Is this about billing?")},
+                        },
+                    ]
+                )
+                assert len(result.results) == 2
+                assert result.results[0].nouls["billing"].noul > result.results[1].nouls["billing"].noul
+            ```
+        """
+        return self._request(
+            prepare_system_one_batch(
+                self._config,
+                requests,
+                model,
+                extra_body,
+                timeout,
+                extra_headers,
+                SystemOneBatchResponse if response_model is None else response_model,
             ),
             retry=retry,
         )
