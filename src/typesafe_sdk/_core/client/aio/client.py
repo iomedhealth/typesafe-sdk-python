@@ -2,19 +2,23 @@
 
 import ssl
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
 from functools import cached_property
 from types import TracebackType
-from typing import Any, overload
+from typing import Any, Literal, overload
 
 import httpx2
 from packaging.version import Version
 from typing_extensions import Self
 
+from typesafe_sdk._core.assets import Asset, resolve_assets_async
+from typesafe_sdk._core.attached import AttachedAssets
 from typesafe_sdk._core.client.aio.models import AsyncModels
 from typesafe_sdk._core.config import DEFAULT_LIMITS, Config
-from typesafe_sdk._core.endpoints import prepare_system_one
-from typesafe_sdk._core.json_types import JSONContent, JSONValue
+from typesafe_sdk._core.content_types import Content
+from typesafe_sdk._core.endpoints import prepare_system_one, with_assets
+from typesafe_sdk._core.json_types import JSONValue
 from typesafe_sdk._core.question_types import Question
 from typesafe_sdk._core.response_types import SystemOneResponse
 from typesafe_sdk._core.retry import RetryPolicy, build_tenacity_async
@@ -55,6 +59,7 @@ class AsyncTypeSafeClient:
         transport: httpx2.AsyncBaseTransport | None = None,
         http_client: httpx2.AsyncClient | None = None,
         base_url: str | None = None,
+        compression: Literal["zstd", False] | None = None,
     ) -> None:
         """Create an asynchronous HTTP client for [TypeSafe AI API](https://typesafe.ai).
 
@@ -79,9 +84,11 @@ class AsyncTypeSafeClient:
             http_client: Optional `httpx2.AsyncClient`; mutually exclusive with `transport`.
                 Closed when this SDK client closes.
             base_url: API root; may be set via the `TYPESAFE_BASE_URL` environment variable.
+            compression: Request body compression: `"zstd"`, or `False` to send bodies uncompressed. Defaults to zstd
+                [when available](../../usage/advanced.md#ensure-zstd-is-available).
 
         Raises:
-            TypeSafeError: The API key is missing or invalid, or the timeout is invalid.
+            TypeSafeError: The API key is missing or invalid, the timeout is invalid, or zstd compression is unavailable.
             ValueError: Both `transport` and `http_client` are supplied.
 
         Examples:
@@ -114,8 +121,9 @@ class AsyncTypeSafeClient:
             raise ValueError("transport and http_client are mutually exclusive.")
         if timeout is None and http_client is not None:
             timeout = http_client.timeout
-        self._config = Config.resolve(api_key, base_url, model, timeout, headers)
+        self._config = Config.resolve(api_key, base_url, model, timeout, headers, compression)
         self._retry = build_tenacity_async(retry)
+        self._attached = AttachedAssets()
         self._http_client = (
             httpx2.AsyncClient(timeout=self._config.timeout, limits=DEFAULT_LIMITS, transport=transport, verify=_ssl_context())
             if http_client is None
@@ -135,13 +143,48 @@ class AsyncTypeSafeClient:
         """
         return AsyncModels(self._config, self._http_client, self._retry)
 
+    def attach_assets(self, assets: Asset | Sequence[Asset]) -> AbstractContextManager[None]:
+        """Attach assets to calls made within a `with` block, for referencing them inside strings.
+
+        Until the block exits, calls on this client send each attached asset whose reference, `str(asset)`, appears in the request.
+
+        !!! warning
+            The SDK only recognizes references to assets that are attached, passed in `assets`, or
+            placed directly in the content. A reference to any other asset is sent as plain text,
+            without the asset.
+
+        Args:
+            assets: An asset, or a sequence of them.
+
+        Raises:
+            TypeSafeError: An attached value is not an asset.
+
+        Examples:
+            ```python
+            from pathlib import Path
+
+            from typesafe_sdk import AsyncTypeSafeClient, Image, Noul, SystemOneResponse
+
+
+            async def inspect(client: AsyncTypeSafeClient, path: Path) -> SystemOneResponse:
+                photo = Image(path)
+                with client.attach_assets(photo):
+                    return await client.system_one(
+                        state=f"Product: {photo}",
+                        questions={"damaged": Noul(instructions="Is the product damaged?")},
+                    )
+            ```
+        """
+        return self._attached.attach(assets)
+
     @overload
     async def system_one(
         self,
-        state: JSONContent,
+        state: Content,
         questions: Mapping[str, Question],
         *,
         model: str | None = None,
+        assets: Mapping[str, Asset] | None = None,
         retry: RetryPolicy | None = None,
         timeout: float | httpx2.Timeout | None = None,
         extra_headers: Mapping[str, str] | None = None,
@@ -152,10 +195,11 @@ class AsyncTypeSafeClient:
     @overload
     async def system_one(
         self,
-        state: JSONContent,
+        state: Content,
         questions: Mapping[str, Question],
         *,
         model: str | None = None,
+        assets: Mapping[str, Asset] | None = None,
         retry: RetryPolicy | None = None,
         timeout: float | httpx2.Timeout | None = None,
         extra_headers: Mapping[str, str] | None = None,
@@ -165,31 +209,34 @@ class AsyncTypeSafeClient:
 
     async def system_one(
         self,
-        state: JSONContent,
+        state: Content,
         questions: Mapping[str, Question],
         *,
         model: str | None = None,
+        assets: Mapping[str, Asset] | None = None,
         retry: RetryPolicy | None = None,
         timeout: float | httpx2.Timeout | None = None,
         extra_headers: Mapping[str, str] | None = None,
         extra_body: Mapping[str, JSONValue | None] | None = None,
         response_model: type[ResponseT] | None = None,
     ) -> SystemOneResponse | ResponseT:
-        """Answer named questions about text or structured state.
+        """Answer named questions about text, structured state, or assets.
 
-        See [System One](https://docs.typesafe.ai/concepts/system-one) for details.
+        See [System One](https://docs.typesafe.ai/go/system-one) for details.
 
         Args:
-            state: Text, a JSON object, or an array to evaluate.
-                See [state](https://docs.typesafe.ai/concepts/state) for details.
+            state: Text, an asset, a JSON object, or an array to evaluate.
+                See [state](https://docs.typesafe.ai/go/state) for details.
             questions: Nonempty mapping of names to question objects or raw dictionaries.
             model: Model override; `None` inherits the client default.
+            assets: Assets keyed by the reference used for them in `state` or questions;
+                see [Attaching media assets](../../usage/basic.md#attaching-media-assets).
             retry: An optional retry policy to override the client-level value for this call only.
             timeout: An optional timeout for http operations to override the client-level value for this call only, in seconds.
             extra_headers: Additional request headers to set.
             extra_body: Additional top-level request-body fields, shallow-merged over the body after
-                `state`, `model`, and `questions` are set. Merging is last-write-wins: a key that
-                collides with `state`, `model`, or `questions` overrides it, and object values are
+                `state`, `model`, `questions`, and `assets` are set. Merging is last-write-wins: a key that
+                collides with those fields overrides it, and object values are
                 replaced rather than deep-merged.
             response_model: Optional Pydantic `BaseModel` type describing the
                 JSON response body, including any nested answer models.
@@ -199,8 +246,7 @@ class AsyncTypeSafeClient:
             name and model and token usage details when no custom model is supplied.
 
         Raises:
-            TypeSafeError: State is `None`, questions are empty, a score or choice question has no criteria,
-                or a noul question has neither instructions nor criteria.
+            TypeSafeError: The request is invalid before it's sent, such as empty questions or an unreadable asset.
             TypeSafeAPIError: The server returns an unsuccessful HTTP response after any retries.
             TypeSafeAPIConnectionError: The request cannot connect or times out after any retries.
             TypeSafeAPIResponseValidationError: The response body does not match the response model.
@@ -245,19 +291,21 @@ class AsyncTypeSafeClient:
                     assert result.choices["tone"].choice in {"calm", "angry"}
             ```
         """
-        return await self._request(
-            prepare_system_one(
-                self._config,
-                state,
-                questions,
-                model,
-                extra_body,
-                timeout,
-                extra_headers,
-                SystemOneResponse if response_model is None else response_model,
-            ),
-            retry=retry,
+        request, pending = prepare_system_one(
+            self._config,
+            state,
+            questions,
+            model,
+            extra_body,
+            timeout,
+            extra_headers,
+            SystemOneResponse if response_model is None else response_model,
+            assets=assets,
+            attached=self._attached.snapshot(),
         )
+        if pending is not None:
+            request = with_assets(request, await resolve_assets_async(pending))
+        return await self._request(request, retry=retry)
 
     async def _request(self, request: Request[ResponseT], *, retry: RetryPolicy | None = None) -> ResponseT:
         return await send_async(self._http_client, self._retry, request, retry)

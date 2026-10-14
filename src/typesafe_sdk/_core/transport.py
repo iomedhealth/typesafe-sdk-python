@@ -13,12 +13,15 @@ import httpx2
 from pydantic_core import PydanticSerializationError
 from tenacity import AsyncRetrying, Retrying
 
+from typesafe_sdk._core.compression import COMPRESSORS, MIN_COMPRESSED_BODY_LENGTH, Encoding
 from typesafe_sdk._core.config import Config, resolve_timeout
 from typesafe_sdk._core.constants import (
     ACCEPT_HEADER,
     AUTHORIZATION_HEADER,
+    CONTENT_ENCODING_HEADER,
     CONTENT_TYPE_HEADER,
     JSON_CONTENT_TYPE,
+    MAX_LOGGED_BODY_LENGTH,
     REQUEST_ID_HEADER,
     RETRY_COUNT_HEADER,
     RUNTIME_HEADER,
@@ -46,6 +49,7 @@ class Request(Generic[ResponseT]):
     content: bytes | None
     timeout: float | httpx2.Timeout
     response_type: type[ResponseT]
+    compression: Encoding | None
 
 
 class RequestState(Generic[ResponseT]):
@@ -55,19 +59,35 @@ class RequestState(Generic[ResponseT]):
         self._request = request
         self.attempts = 0
         self.started = 0.0
+        # Large enough bodies are compressed once for every attempt, and logged uncompressed.
+        self._headers = request.headers
+        self.content = request.content
+        if self.content is not None and len(self.content) >= MIN_COMPRESSED_BODY_LENGTH and request.compression is not None:
+            self._headers = httpx2.Headers(request.headers)
+            self._headers[CONTENT_ENCODING_HEADER] = request.compression
+            self.content = COMPRESSORS[request.compression](self.content)
 
     def _log_wire(self, arrow: str, headers: httpx2.Headers, body: bytes | None) -> None:
         # Headers go through `args["headers"]` so SensitiveHeadersFilter redacts them.
         if logger.isEnabledFor(logging.DEBUG):
+            # Truncate large bodies, such as ones with image assets, so each attempt logs a bounded line.
+            truncated = "" if body is None or len(body) <= MAX_LOGGED_BODY_LENGTH else f" (+{len(body) - MAX_LOGGED_BODY_LENGTH} bytes)"
             logger.debug(
-                "%(method)s %(url)s %(arrow)s headers=%(headers)s body=%(body)r",
-                {"method": self._request.method, "url": self._request.url, "arrow": arrow, "headers": dict(headers), "body": body},
+                "%(method)s %(url)s %(arrow)s headers=%(headers)s body=%(body)r%(truncated)s",
+                {
+                    "method": self._request.method,
+                    "url": self._request.url,
+                    "arrow": arrow,
+                    "headers": dict(headers),
+                    "body": body[:MAX_LOGGED_BODY_LENGTH] if body is not None else None,
+                    "truncated": truncated,
+                },
             )
 
     @contextmanager
     def attempt(self) -> Generator[httpx2.Headers, None, None]:
         request = self._request
-        headers = httpx2.Headers(request.headers)
+        headers = httpx2.Headers(self._headers)
         if self.attempts:
             headers[RETRY_COUNT_HEADER] = str(self.attempts)
             logger.info("%s %s retry %s", request.method, request.url, self.attempts)
@@ -112,6 +132,8 @@ def prepare(
     timeout: float | httpx2.Timeout | None,
     headers: Mapping[str, str] | None,
     response_type: type[ResponseT],
+    *,
+    context: object = None,
 ) -> Request[ResponseT]:
     merged = httpx2.Headers(config.default_headers)
     merged.update(headers or {})
@@ -127,7 +149,7 @@ def prepare(
     )
     content: bytes | None = None
     if body is not None:
-        content = _encode_body(body)
+        content = _encode_body(body, context)
         merged[CONTENT_TYPE_HEADER] = JSON_CONTENT_TYPE
     return Request(
         method,
@@ -136,12 +158,13 @@ def prepare(
         content,
         resolve_timeout(config.timeout if timeout is None else timeout),
         response_type,
+        config.compression,
     )
 
 
-def _encode_body(body: object) -> bytes:
+def _encode_body(body: object, context: object) -> bytes:
     try:
-        return serialize(body)
+        return serialize(body, context)
     except (PydanticSerializationError, TypeError, ValueError) as error:
         raise TypeSafeError("The request body could not be encoded as JSON") from error
 
@@ -152,7 +175,7 @@ def send(http_client: httpx2.Client, retry: Retrying, request: Request[ResponseT
     def attempt() -> ResponseT:
         with state.attempt() as headers:
             response = http_client.request(
-                request.method, request.url, content=request.content, headers=headers, timeout=request.timeout, auth=None
+                request.method, request.url, content=state.content, headers=headers, timeout=request.timeout, auth=None
             )
             return state.parse(response)
 
@@ -168,7 +191,7 @@ async def send_async(
     async def attempt() -> ResponseT:
         with state.attempt() as headers:
             response = await http_client.request(
-                request.method, request.url, content=request.content, headers=headers, timeout=request.timeout, auth=None
+                request.method, request.url, content=state.content, headers=headers, timeout=request.timeout, auth=None
             )
             return state.parse(response)
 

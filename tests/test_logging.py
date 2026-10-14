@@ -8,6 +8,7 @@ import pytest
 from tests.conftest import ClientFactory
 from tests.helpers import models
 from typesafe_sdk import RetryPolicy, TypeSafeAPIError, TypeSafeError
+from typesafe_sdk._core.constants import MAX_LOGGED_BODY_LENGTH
 from typesafe_sdk._core.logging import logger, redact_exception, setup_logging
 
 
@@ -208,6 +209,16 @@ async def test_logger_level_controls_output(
         assert "GET" in summaries[0]
     if logging.DEBUG not in expected:
         assert all("headers=" not in record.getMessage() for record in records)
+
+
+async def test_large_bodies_are_truncated(clients: ClientFactory, caplog: pytest.LogCaptureFixture) -> None:
+    body: dict[str, object] = {"models": [], "padding": "x" * 10_000}
+    size = len(json.dumps(body, separators=(",", ":")))
+    with caplog.at_level(logging.DEBUG, logger="typesafe_sdk"):
+        await models(clients(lambda request: httpx2.Response(200, json=body)))
+    (response_log,) = [record.getMessage() for record in caplog.records if "<- headers=" in record.getMessage()]
+    assert f"(+{size - MAX_LOGGED_BODY_LENGTH} bytes)" in response_log
+    assert len(response_log) < MAX_LOGGED_BODY_LENGTH * 2
 
 
 @pytest.mark.parametrize(

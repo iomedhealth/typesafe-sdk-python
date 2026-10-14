@@ -1,6 +1,7 @@
 """Internal protocol and logging constants."""
 
 MAX_ERROR_BODY_LENGTH = 200
+MAX_LOGGED_BODY_LENGTH = 4096
 
 SYSTEM_ONE_PATH = "/v1/systemone"
 MODELS_PATH = "/v1/models"
@@ -11,6 +12,7 @@ JSON_CONTENT_TYPE = "application/json"
 AUTHORIZATION_HEADER = "Authorization"
 ACCEPT_HEADER = "Accept"
 CONTENT_TYPE_HEADER = "Content-Type"
+CONTENT_ENCODING_HEADER = "Content-Encoding"
 USER_AGENT_HEADER = "User-Agent"
 SDK_HEADER = "X-TypeSafe-SDK"
 RUNTIME_HEADER = "X-TypeSafe-Runtime"

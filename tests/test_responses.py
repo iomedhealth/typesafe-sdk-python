@@ -14,6 +14,8 @@ from tests.test_clients import RESULT
 from typesafe_sdk import (
     Answer,
     AsyncTypeSafeClient,
+    BoxAnswer,
+    BoxCoordinates,
     ChoiceAnswer,
     ListModelsResponse,
     ModelMetadata,
@@ -90,7 +92,8 @@ async def test_response_carries_raw_http_response(clients: ClientFactory) -> Non
 
 @pytest.mark.parametrize("resource", ["models", "system_one"])
 async def test_response_serialization_excludes_http_metadata(clients: ClientFactory, resource: str) -> None:
-    body = {"models": [{"name": "test", "description": "Test model", "release_date": "2026-09-14"}]} if resource == "models" else RESULT
+    models = {"models": [{"name": "test", "description": "Test model", "release_date": "2026-09-14"}]}
+    body: dict[str, Any] = models if resource == "models" else RESULT
     client = clients(lambda request: httpx2.Response(200, json=body, headers={"x-typesafe-request-id": "req-export"}))
     if resource == "models":
         result = await client.models.list() if isinstance(client, AsyncTypeSafeClient) else client.models.list()
@@ -142,6 +145,7 @@ async def test_unknown_extra_fields_tolerated(clients: ClientFactory) -> None:
         "model": "test",
         "usage": {"input_tokens": 1, "output_tokens": 1, "reasoning_tokens": 9, "billing_units": 1},
         "answers": {"spam": {"type": "noul", "noul": 0.9, "explanation": "spammy"}},
+        "assets_used": {"<photo>": {"times_used": 1}},
     }
     result = await system_one(
         clients(lambda request: httpx2.Response(200, json=body)),
@@ -149,6 +153,8 @@ async def test_unknown_extra_fields_tolerated(clients: ClientFactory) -> None:
         questions={"q": {"type": "noul", "instructions": "?"}},
     )
     assert result.nouls["spam"].noul == 0.9
+    assert not hasattr(result, "assets_used")
+    assert "assets_used" not in result.model_dump()
     assert not hasattr(result.usage, "billing_units")
     assert result.usage.model_dump() == {"input_tokens": 1, "output_tokens": 1}
     assert result.raw_http_response.json() == body
@@ -173,6 +179,21 @@ async def test_unknown_answer_type_ignored(clients: ClientFactory) -> None:
     assert result.nouls["spam"].noul == 0.9
     # The unknown answer is still available in the raw response.
     assert result.raw_http_response.json()["answers"]["mystery"]["type"] == "aurora"
+
+
+async def test_box_answer(clients: ClientFactory) -> None:
+    box = {"type": "box", "box": {"top": 0.1, "bottom": 0.6, "left": 0.25, "right": 0.75}, "confidence": 0.9}
+    # Unmodeled answer fields are ignored and remain available through the raw response.
+    body = {"model": "test", "usage": {"input_tokens": 1, "output_tokens": 1}, "answers": {"dog": {**box, "extra": {"k": [1.0]}}}}
+    result = await system_one(
+        clients(lambda request: httpx2.Response(200, json=body)),
+        state="text",
+        questions={"dog": {"type": "box", "instructions": "The dog"}},
+    )
+    answer = result.boxes["dog"]
+    assert answer is result.answers["dog"]
+    assert answer.model_dump() == box
+    assert not result.nouls
 
 
 def test_response_preserves_nested_json() -> None:
@@ -237,6 +258,8 @@ def test_answer_attributes_and_dictionary_types() -> None:
         (NoulAnswer, {"noul": 0.5}),
         (ChoiceAnswer, {"choice": "a", "confidence": 1.0, "probabilities": {"a": 1.0}}),
         (ScoreAnswer, {"score": 0.0, "confidence": 1.0, "legend": {0: "bad"}, "probabilities": {0: 1.0}}),
+        (BoxAnswer, {"box": BoxCoordinates(top=0.0, bottom=1.0, left=0.0, right=1.0), "confidence": None}),
+        (BoxCoordinates, {"top": 0.0, "bottom": 1.0, "left": 0.0, "right": 1.0}),
         (Usage, {}),
         (SystemOneResponse, {"model": "test", "usage": Usage()}),
         (ModelMetadata, {"name": "test", "description": "Test model", "release_date": "2026-09-14"}),
@@ -255,6 +278,7 @@ def test_public_response_types_ignore_unknown_fields(model_type: Any, kwargs: di
         NoulAnswer(noul=0.98),
         ChoiceAnswer(choice="billing", confidence=1.0, probabilities={"billing": 1.0}),
         ScoreAnswer(score=0.0, confidence=1.0, legend={0: "bad"}, probabilities={0: 1.0}),
+        BoxAnswer(box=BoxCoordinates(top=0.0, bottom=1.0, left=0.0, right=1.0), confidence=None),
     ],
 )
 def test_answer_fields_are_frozen(answer: Answer) -> None:
@@ -265,7 +289,7 @@ def test_answer_fields_are_frozen(answer: Answer) -> None:
             setattr(answer, name, getattr(answer, name))
 
 
-@pytest.mark.parametrize("group", ["nouls", "choices", "scores"])
+@pytest.mark.parametrize("group", ["nouls", "choices", "scores", "boxes"])
 def test_answer_groups_are_cached_and_not_serialized(group: str) -> None:
     result = SystemOneResponse(model="test", usage=Usage(), answers={})
     cached = getattr(result, group)

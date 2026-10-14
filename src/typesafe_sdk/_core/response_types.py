@@ -22,7 +22,7 @@ from typesafe_sdk._schemas import models as wire
 class NoulAnswer(wire.NoulAnswer):
     """A yes/no answer.
 
-    See the [noul primitive](https://docs.typesafe.ai/primitives/noul) for details.
+    See the [noul primitive](https://docs.typesafe.ai/go/noul) for details.
     """
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
@@ -33,7 +33,7 @@ class NoulAnswer(wire.NoulAnswer):
 class ChoiceAnswer(wire.ChoiceAnswer):
     """A selected label and its probabilities.
 
-    See the [choice primitive](https://docs.typesafe.ai/primitives/choice) for details.
+    See the [choice primitive](https://docs.typesafe.ai/go/choice) for details.
     """
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
@@ -44,7 +44,7 @@ class ChoiceAnswer(wire.ChoiceAnswer):
 class ScoreAnswer(wire.ScoreAnswer):
     """An expected score with its rubric and probabilities.
 
-    See the [score primitive](https://docs.typesafe.ai/primitives/score) for details.
+    See the [score primitive](https://docs.typesafe.ai/go/score) for details.
     """
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
@@ -58,7 +58,25 @@ class ScoreAnswer(wire.ScoreAnswer):
     """Probabilities keyed by integer score."""
 
 
-Answer: TypeAlias = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, Field(discriminator="type")]
+class BoxCoordinates(wire.BoxCoordinates):
+    """A box's edges as fractions of the image's height (`top`, `bottom`) and width (`left`, `right`)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
+
+
+class BoxAnswer(wire.BoxAnswer):
+    """A located box with its confidence."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
+
+    type: Literal["box"] = "box"  # pyrefly: ignore[bad-override]
+    box: BoxCoordinates  # pyrefly: ignore[bad-override]
+    """The box's edges as fractions of the image's height and width, from 0 to 1."""
+    confidence: float | None  # pyrefly: ignore[bad-override]
+    """Confidence for the box, from 0 to 1, or `None` when the model does not provide it."""
+
+
+Answer: TypeAlias = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer | BoxAnswer, Field(discriminator="type")]
 """An answer to a single question, identified by its `type`."""
 
 
@@ -73,7 +91,7 @@ class Usage(wire.Usage):
     """Number of output tokens used, or `None` when the API did not report it."""
 
 
-_ANSWER_TYPES = {"noul", "choice", "score"}
+_ANSWER_TYPES = {"noul", "choice", "score", "box"}
 
 
 def _prepare_system_one_response(response: httpx2.Response, answer_fields: set[str]) -> dict[str, Any]:
@@ -99,7 +117,7 @@ def _prepare_system_one_response(response: httpx2.Response, answer_fields: set[s
 class SystemOneResponse(Response):
     """Answers grouped by question type with model and usage metadata.
 
-    See [System One](https://docs.typesafe.ai/concepts/system-one) for details.
+    See [System One](https://docs.typesafe.ai/go/system-one) for details.
     """
 
     model: str
@@ -123,6 +141,11 @@ class SystemOneResponse(Response):
     def scores(self) -> dict[str, ScoreAnswer]:
         """Score answers keyed by question name."""
         return {name: answer for name, answer in self.answers.items() if isinstance(answer, ScoreAnswer)}
+
+    @cached_property
+    def boxes(self) -> dict[str, BoxAnswer]:
+        """Box answers keyed by question name."""
+        return {name: answer for name, answer in self.answers.items() if isinstance(answer, BoxAnswer)}
 
     @classmethod
     @override

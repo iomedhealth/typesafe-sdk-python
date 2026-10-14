@@ -10,7 +10,11 @@ Install the SDK:
 uv add typesafe-sdk
 ```
 
-Add the `http2` extra (`typesafe-sdk[http2]`) to enable [HTTP/2 support](https://docs.typesafe.ai/sdk/python/usage/#http2).
+Extras (for example, `typesafe-sdk[http2]`) supported:
+
+- `http2`: enable [HTTP/2 support](https://docs.typesafe.ai/sdk/python/usage/advanced/#http2)
+- `pil`: send [Pillow images](https://docs.typesafe.ai/sdk/python/api/types/assets/#typesafe_sdk.Image.from_pil)
+- `zstd`: [compress request bodies](https://docs.typesafe.ai/sdk/python/usage/advanced/#ensure-zstd-is-available) on Python 3.13 and earlier
 
 Set `TYPESAFE_API_KEY` in your environment, then instantiate and use the client:
 
@@ -35,4 +39,4 @@ learn what TypeSafe is, what it can do, and how to use it in [TypeSafe docs](htt
 
 ## Documentation
 
-Learn more in [SDK docs](https://docs.typesafe.ai/sdk/python/).
+Learn more in [SDK docs](https://docs.typesafe.ai/go/python-sdk).

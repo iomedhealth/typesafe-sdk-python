@@ -7,6 +7,8 @@ from typing_extensions import assert_type
 
 from typesafe_sdk import (
     AsyncTypeSafeClient,
+    Box,
+    BoxAnswer,
     Choice,
     ChoiceModel,
     ListModelsResponse,
@@ -30,6 +32,8 @@ def sync(client: TypeSafeClient) -> None:
     assert_type(client.system_one("x", future_questions, retry=RetryPolicy(max_retries=1)), SystemOneResponse)
     assert_type(client.system_one("x", data, extra_body={"beam_width": 4, "nullable": None}), SystemOneResponse)
     assert_type(client.models.list(retry=RetryPolicy(), timeout=2.0, extra_headers={"x-call": "test"}), ListModelsResponse)
+    boxes = client.system_one("x", {"b": Box(instructions="?"), "raw": {"type": "box"}}).boxes
+    assert_type(boxes, dict[str, BoxAnswer])
     TypeSafeClient(retry=RetryPolicy(max_retries=1))
 
 
