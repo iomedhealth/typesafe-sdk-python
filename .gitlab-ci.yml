@@ -1,0 +1,26 @@
+stages:
+  - build-and-publish
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+publish-package:
+  stage: build-and-publish
+  tags:
+    - production-gcp
+  image: python:3.11-slim
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+    - if: $CI_COMMIT_BRANCH == "feat/batch-endpoint"
+      when: manual
+  before_script:
+    - pip install --upgrade pip uv twine
+  script:
+    - uv build
+    - TWINE_PASSWORD=${CI_JOB_TOKEN} TWINE_USERNAME=gitlab-ci-token python -m twine upload --verbose --repository-url https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/pypi dist/*
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
