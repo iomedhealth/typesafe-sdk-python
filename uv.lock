@@ -1238,7 +1238,7 @@ wheels = [
 
 [[package]]
 name = "typesafe-sdk"
-version = "0.7.5+iomed.1"
+version = "0.7.4"
 source = { editable = "." }
 dependencies = [
     { name = "httpx2" },

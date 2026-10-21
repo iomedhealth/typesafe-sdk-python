@@ -1,25 +1,35 @@
 stages:
   - build-and-publish
 
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
 publish-package:
   stage: build-and-publish
   tags:
     - production-gcp
-  image: python:3.11-slim
+  image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
   rules:
     - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: manual
-    - if: $CI_COMMIT_BRANCH == "feat/batch-endpoint"
+    - if: $CI_COMMIT_BRANCH
       when: manual
-  before_script:
-    - pip install --upgrade pip uv twine
   script:
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        PACKAGE_VERSION="${CI_COMMIT_TAG#v}"
+      else
+        UPSTREAM_VER=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+        PACKAGE_VERSION="${UPSTREAM_VER}+iomed.g${CI_COMMIT_SHORT_SHA}"
+      fi
+      echo "Building package version: ${PACKAGE_VERSION}"
+      sed -i "s/^version = .*/version = \"${PACKAGE_VERSION}\"/" pyproject.toml
     - uv build
-    - TWINE_PASSWORD=${CI_JOB_TOKEN} TWINE_USERNAME=gitlab-ci-token python -m twine upload --verbose --repository-url https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/pypi dist/*
+    - >
+      TWINE_PASSWORD=${CI_JOB_TOKEN}
+      TWINE_USERNAME=gitlab-ci-token
+      uv run --with twine twine upload
+      --verbose
+      --repository-url https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/pypi
+      dist/*
   artifacts:
     paths:
       - dist/
