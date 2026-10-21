@@ -7,7 +7,7 @@ kinds a future API adds without failing the whole response.
 """
 
 from functools import cached_property
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias, get_args
 
 import httpx2
 from pydantic import ConfigDict, Field, ValidationError
@@ -94,16 +94,13 @@ class Usage(wire.Usage):
 _ANSWER_TYPES = {"noul", "choice", "score", "box"}
 
 
-def _prepare_system_one_response(response: httpx2.Response, answer_fields: set[str]) -> dict[str, Any]:
-    """Validate answers, drop future types, and lift declared answer fields into top-level keys."""
-    decoded = deserialize(response.content)
-    if not isinstance(decoded, dict):
-        raise validation_error(response, "")
+def _prepare_system_one_answers(response: httpx2.Response, decoded: dict[str, Any], answer_fields: set[str], prefix: str) -> None:
+    """Validate answers in place, drop future types, and lift declared answer fields into top-level keys."""
     answers = decoded.get("answers")
     if isinstance(answers, dict):
         for name, raw in list(answers.items()):
             if not isinstance(raw, dict) or not isinstance(raw.get("type"), str):
-                raise validation_error(response, f"answers.{name}.type")
+                raise validation_error(response, f"{prefix}answers.{name}.type")
             if raw["type"] not in _ANSWER_TYPES:
                 # Forward-compat: ignore answer types this SDK version does not model. The raw payload
                 # is still available through `response.raw_http_response`.
@@ -111,7 +108,21 @@ def _prepare_system_one_response(response: httpx2.Response, answer_fields: set[s
                 del answers[name]
         for answer_field in answer_fields & answers.keys():
             decoded[answer_field] = answers[answer_field]
+
+
+def _prepare_system_one_response(response: httpx2.Response, answer_fields: set[str]) -> dict[str, Any]:
+    """Validate answers, drop future types, and lift declared answer fields into top-level keys."""
+    decoded = deserialize(response.content)
+    if not isinstance(decoded, dict):
+        raise validation_error(response, "")
+    _prepare_system_one_answers(response, decoded, answer_fields, "")
     return decoded
+
+
+def _strip_answer_discriminator(location: list[str | int], answers_index: int) -> None:
+    """Drop the union-member segment Pydantic adds after `answers.<name>` so paths read `answers.n.noul`."""
+    if len(location) > answers_index + 2 and location[answers_index] == "answers" and location[answers_index + 2] in _ANSWER_TYPES:
+        del location[answers_index + 2]
 
 
 class SystemOneResponse(Response):
@@ -156,9 +167,51 @@ class SystemOneResponse(Response):
             return cls.model_validate_json(serialize(decoded))
         except ValidationError as error:
             location = list(error.errors(include_url=False)[0]["loc"])
-            match location:
-                case ["answers", _, answer_type, *_] if answer_type in _ANSWER_TYPES:
-                    del location[2]
+            _strip_answer_discriminator(location, 0)
+            raise validation_error(response, format_path(location)) from error
+
+
+class SystemOneBatchResponse(Response):
+    """Results of a batch request, one `SystemOneResponse` per submitted item, in order.
+
+    The batch endpoint (`POST /v1/systemone/batch`) is an extension served by self-hosted System One
+    deployments; it is not part of the public TypeSafe AI API.
+    """
+
+    model: str
+    """The model used to answer the batch."""
+    results: list[SystemOneResponse]
+    """One response per request, aligned with the submitted `requests` list."""
+    usage: Usage
+    """Token usage aggregated over the whole batch."""
+
+    @classmethod
+    def _result_answer_fields(cls) -> set[str]:
+        """Answer fields declared by a custom `results` element model, lifted the same way as in `system_one`."""
+        element_types = get_args(cls.model_fields["results"].annotation)
+        if len(element_types) == 1 and isinstance(element_types[0], type) and issubclass(element_types[0], SystemOneResponse):
+            return set(element_types[0].model_fields) - set(SystemOneResponse.model_fields)
+        return set()
+
+    @classmethod
+    @override
+    def _decode(cls, response: httpx2.Response) -> Self:
+        decoded = deserialize(response.content)
+        if not isinstance(decoded, dict):
+            raise validation_error(response, "")
+        results = decoded.get("results")
+        if isinstance(results, list):
+            answer_fields = cls._result_answer_fields()
+            for index, result in enumerate(results):
+                if not isinstance(result, dict):
+                    raise validation_error(response, f"results[{index}]")
+                _prepare_system_one_answers(response, result, answer_fields, f"results[{index}].")
+        try:
+            return cls.model_validate_json(serialize(decoded))
+        except ValidationError as error:
+            location = list(error.errors(include_url=False)[0]["loc"])
+            if len(location) > 1 and location[0] == "results":
+                _strip_answer_discriminator(location, 2)
             raise validation_error(response, format_path(location)) from error
 
 

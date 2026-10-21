@@ -5,6 +5,13 @@ icon: lucide/history
 
 # Changelog
 
+## Unreleased
+
+### Features
+
+- add `system_one_batch` to both clients for `POST /v1/systemone/batch`, a self-hosted System One extension that
+  evaluates up to 50 states per request; new public types `SystemOneBatchItem` and `SystemOneBatchResponse`
+
 ## v0.7.5 (2026-10-14)
 
 ### Documentation

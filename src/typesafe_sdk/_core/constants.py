@@ -4,6 +4,8 @@ MAX_ERROR_BODY_LENGTH = 200
 MAX_LOGGED_BODY_LENGTH = 4096
 
 SYSTEM_ONE_PATH = "/v1/systemone"
+SYSTEM_ONE_BATCH_PATH = "/v1/systemone/batch"
+SYSTEM_ONE_BATCH_MAX_REQUESTS = 50
 MODELS_PATH = "/v1/models"
 SDK_NAME = "typesafe-sdk"
 LOGGER_NAME = "typesafe_sdk"

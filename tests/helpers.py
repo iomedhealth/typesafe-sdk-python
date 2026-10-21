@@ -1,5 +1,5 @@
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import httpx2
@@ -10,10 +10,13 @@ from typesafe_sdk import (
     Asset,
     AsyncTypeSafeClient,
     Content,
+    JSONContent,
     JSONValue,
     ModelMetadata,
     Questions,
     RetryPolicy,
+    SystemOneBatchItem,
+    SystemOneBatchResponse,
     SystemOneResponse,
     TypeSafeClient,
 )
@@ -27,7 +30,9 @@ def multipart_parts(request: httpx2.Request) -> dict[str, tuple[bytes, bytes]]:
     assert chunks[-1] == b"--\r\n"
     parts = {}
     for chunk in chunks[1:-1]:
-        head, _, content = chunk.removeprefix(b"\r\n").removesuffix(b"\r\n").partition(b"\r\n\r\n")
+        head, _, content = (
+            chunk.removeprefix(b"\r\n").removesuffix(b"\r\n").partition(b"\r\n\r\n")
+        )
         match = re.search(rb'name="([^"]+)"', head)
         assert match is not None
         parts[match[1].decode()] = (head, content)
@@ -70,9 +75,15 @@ async def models(
     extra_headers: Mapping[str, str] | None = None,
 ) -> tuple[ModelMetadata, ...]:
     if isinstance(client, AsyncTypeSafeClient):
-        return (await client.models.list(retry=retry, timeout=timeout, extra_headers=extra_headers)).models
+        return (
+            await client.models.list(
+                retry=retry, timeout=timeout, extra_headers=extra_headers
+            )
+        ).models
     else:
-        return client.models.list(retry=retry, timeout=timeout, extra_headers=extra_headers).models
+        return client.models.list(
+            retry=retry, timeout=timeout, extra_headers=extra_headers
+        ).models
 
 
 async def system_one(
@@ -104,6 +115,36 @@ async def system_one(
             questions,
             model=model,
             assets=assets,
+            extra_body=extra_body,
+            retry=retry,
+            timeout=timeout,
+            extra_headers=extra_headers,
+        )
+
+
+async def system_one_batch(
+    client: TypeSafeClient | AsyncTypeSafeClient,
+    *,
+    requests: Sequence[SystemOneBatchItem],
+    model: str | None = None,
+    extra_body: Mapping[str, JSONValue | None] | None = None,
+    retry: RetryPolicy | None = None,
+    timeout: float | httpx2.Timeout | None = None,
+    extra_headers: Mapping[str, str] | None = None,
+) -> SystemOneBatchResponse:
+    if isinstance(client, AsyncTypeSafeClient):
+        return await client.system_one_batch(
+            requests,
+            model=model,
+            extra_body=extra_body,
+            retry=retry,
+            timeout=timeout,
+            extra_headers=extra_headers,
+        )
+    else:
+        return client.system_one_batch(
+            requests,
+            model=model,
             extra_body=extra_body,
             retry=retry,
             timeout=timeout,

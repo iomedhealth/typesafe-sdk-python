@@ -1,14 +1,27 @@
 """Endpoint-specific request builders, layered over the generic `transport.prepare`."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
 import httpx2
 
-from typesafe_sdk._core.assets import REFERENCE_PATTERN, Asset, References, ResolvedImage
+from typesafe_sdk._core.assets import (
+    REFERENCE_PATTERN,
+    Asset,
+    References,
+    ResolvedImage,
+)
+from typesafe_sdk._core.batch_types import SystemOneBatchItem
 from typesafe_sdk._core.config import Config
-from typesafe_sdk._core.constants import CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE, MODELS_PATH, SYSTEM_ONE_PATH
+from typesafe_sdk._core.constants import (
+    CONTENT_TYPE_HEADER,
+    JSON_CONTENT_TYPE,
+    MODELS_PATH,
+    SYSTEM_ONE_BATCH_MAX_REQUESTS,
+    SYSTEM_ONE_BATCH_PATH,
+    SYSTEM_ONE_PATH,
+)
 from typesafe_sdk._core.content_types import Content
 from typesafe_sdk._core.errors import TypeSafeError
 from typesafe_sdk._core.json import serialize
@@ -52,12 +65,25 @@ def prepare_system_one(
         body.update(extra_body)
     # Assets serialize as their alias in `assets`, or else as their reference, collected in `references.found`.
     references = References({id(asset): name for name, asset in (assets or {}).items()})
-    request = prepare(config, "POST", SYSTEM_ONE_PATH, body, timeout, headers, response_type, context=references)
+    request = prepare(
+        config,
+        "POST",
+        SYSTEM_ONE_PATH,
+        body,
+        timeout,
+        headers,
+        response_type,
+        context=references,
+    )
     if "assets" in body:
         return request, None
     pending = dict(assets or {})
     # Placed, passed, and attached assets are known by reference: placed ones serialize as it, and text may contain it.
-    known = {**(attached or {}), **{str(asset): asset for asset in pending.values()}, **references.found}
+    known = {
+        **(attached or {}),
+        **{str(asset): asset for asset in pending.values()},
+        **references.found,
+    }
     if known and request.content is not None:
         # References are JSON-safe ASCII, so one scan of the encoded body finds them in every string.
         for match in REFERENCE_PATTERN.finditer(request.content):
@@ -68,11 +94,18 @@ def prepare_system_one(
         # The API rejects an empty `assets`, so it's left out.
         return request, None
     # Each asset's part is named by its position, so the body can name it before the asset is read.
-    entries = {name: wire.Asset(type="image", part=_part_name(i)).model_dump(exclude_none=True) for i, name in enumerate(pending)}
-    return replace(request, content=serialize({**body, "assets": entries}, references)), pending
+    entries = {
+        name: wire.Asset(type="image", part=_part_name(i)).model_dump(exclude_none=True)
+        for i, name in enumerate(pending)
+    }
+    return replace(
+        request, content=serialize({**body, "assets": entries}, references)
+    ), pending
 
 
-def with_assets(request: Request[ResponseT], assets: Mapping[str, ResolvedImage]) -> Request[ResponseT]:
+def with_assets(
+    request: Request[ResponseT], assets: Mapping[str, ResolvedImage]
+) -> Request[ResponseT]:
     """Add the resolved assets from `prepare_system_one` to its request.
 
     The JSON body becomes the first part, named `request`, of a `multipart/form-data` body, followed
@@ -80,8 +113,13 @@ def with_assets(request: Request[ResponseT], assets: Mapping[str, ResolvedImage]
     """
     # The API requires each part to be claimed by exactly one asset, so an image under several names is sent once per name.
     # Each part is labeled with its content type when recognized, so its asset entry only names it.
-    parts = [Part(_part_name(i), image.content_type, image.data, _part_name(i)) for i, image in enumerate(assets.values())]
-    content_type, content = encode_multipart([Part("request", JSON_CONTENT_TYPE, request.content or b""), *parts])
+    parts = [
+        Part(_part_name(i), image.content_type, image.data, _part_name(i))
+        for i, image in enumerate(assets.values())
+    ]
+    content_type, content = encode_multipart(
+        [Part("request", JSON_CONTENT_TYPE, request.content or b""), *parts]
+    )
     headers = httpx2.Headers(request.headers)
     headers[CONTENT_TYPE_HEADER] = content_type
     return replace(request, headers=headers, content=content)
@@ -91,5 +129,56 @@ def _part_name(index: int) -> str:
     return f"asset-{index}"
 
 
-def prepare_models(config: Config, timeout: float | httpx2.Timeout | None, headers: Mapping[str, str] | None) -> Request[ListModelsResponse]:
-    return prepare(config, "GET", MODELS_PATH, None, timeout, headers, ListModelsResponse)
+def prepare_system_one_batch(
+    config: Config,
+    requests: Sequence[SystemOneBatchItem],
+    model: str | None,
+    extra_body: Mapping[str, JSONValue | None] | None,
+    timeout: float | httpx2.Timeout | None,
+    headers: Mapping[str, str] | None,
+    response_type: type[ResponseT],
+) -> Request[ResponseT]:
+    if not requests:
+        raise TypeSafeError("At least one request is required.")
+    if len(requests) > SYSTEM_ONE_BATCH_MAX_REQUESTS:
+        raise TypeSafeError(
+            f"At most {SYSTEM_ONE_BATCH_MAX_REQUESTS} requests are allowed per batch; got {len(requests)}."
+        )
+    batch_model = config.default_model if model is None else model
+    items: list[dict[str, Any]] = []
+    for index, item in enumerate(requests):
+        if not isinstance(item, Mapping):
+            raise TypeSafeError(
+                f"Request {index} must be a dictionary with state and questions."
+            )
+        state = item.get("state")
+        if state is None:
+            raise TypeSafeError(f"State is required (request {index}).")
+        item_model = item.get("model")
+        try:
+            questions = normalize_questions(item.get("questions") or {})
+        except TypeSafeError as error:
+            raise TypeSafeError(f"{error} (request {index})") from None
+        items.append(
+            {
+                "state": state,
+                "model": batch_model if item_model is None else item_model,
+                "questions": questions,
+            }
+        )
+    body: dict[str, Any] = {"requests": items}
+    if extra_body is not None:
+        body.update(extra_body)
+    return prepare(
+        config, "POST", SYSTEM_ONE_BATCH_PATH, body, timeout, headers, response_type
+    )
+
+
+def prepare_models(
+    config: Config,
+    timeout: float | httpx2.Timeout | None,
+    headers: Mapping[str, str] | None,
+) -> Request[ListModelsResponse]:
+    return prepare(
+        config, "GET", MODELS_PATH, None, timeout, headers, ListModelsResponse
+    )

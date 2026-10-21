@@ -3,6 +3,7 @@
 from typesafe_sdk import _core as _core
 from typesafe_sdk import constants as constants
 from typesafe_sdk._core.assets import Asset, Image
+from typesafe_sdk._core.batch_types import SystemOneBatchItem
 from typesafe_sdk._core.client.aio.client import AsyncTypeSafeClient
 from typesafe_sdk._core.client.aio.models import AsyncModels
 from typesafe_sdk._core.client.sync.client import TypeSafeClient
@@ -46,6 +47,7 @@ from typesafe_sdk._core.response_types import (
     ModelMetadata,
     NoulAnswer,
     ScoreAnswer,
+    SystemOneBatchResponse,
     SystemOneResponse,
     Usage,
 )
@@ -83,6 +85,8 @@ __all__ = [
     "Score",
     "ScoreAnswer",
     "ScoreModel",
+    "SystemOneBatchItem",
+    "SystemOneBatchResponse",
     "SystemOneResponse",
     "TypeSafeAPIConnectionError",
     "TypeSafeAPIError",
