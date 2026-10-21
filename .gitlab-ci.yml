@@ -1,6 +1,9 @@
 stages:
   - build-and-publish
 
+variables:
+  UV_PYTHON_PREFERENCE: "only-system"
+
 publish-package:
   stage: build-and-publish
   tags:
@@ -34,3 +37,4 @@ publish-package:
     paths:
       - dist/
     expire_in: 1 week
+
