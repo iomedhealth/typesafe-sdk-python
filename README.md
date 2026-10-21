@@ -71,6 +71,47 @@ for result in response.results:
 Validation mirrors `system_one`: an empty list, more than 50 items, a `None` state, or empty questions raise
 `TypeSafeError` before any request is sent. The `AsyncTypeSafeClient` offers the same method as a coroutine.
 
+## IOMED Internal Distribution
+
+This repository is an internal fork of [TypeSafe AI SDK](https://github.com/typesafe-ai/typesafe-sdk-python) maintained by IOMED to support batch evaluation extensions and custom integrations.
+
+### Mirror & Automation
+- **Primary Repository**: Active development, code reviews, and PRs take place on GitHub (`iomedhealth/typesafe-sdk-python`).
+- **GitLab Mirror**: All branches and tags are continuously pull-mirrored to GitLab at [`iomed/datascience/typesafe-sdk-python`](https://gitlab.com/iomed/datascience/typesafe-sdk-python) (Project ID: `87907153`).
+- **Automated Registry Publishing**: Pushing a release tag to GitHub automatically syncs to GitLab and triggers GitLab CI to build and publish the wheel to the IOMED GitLab PyPI package registry.
+
+### Installation
+
+#### Local Development
+```bash
+pip install --extra-index-url https://gitlab.com/api/v4/projects/87907153/packages/pypi/simple typesafe-sdk
+```
+
+Or with `uv`:
+```bash
+uv add --extra-index-url https://gitlab.com/api/v4/projects/87907153/packages/pypi/simple typesafe-sdk
+```
+
+#### In CI / Dockerfiles
+Authenticate with a GitLab token (e.g. `${CI_JOB_TOKEN}` or `${GITLAB_TOKEN}`):
+```bash
+pip install --extra-index-url https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/api/v4/projects/87907153/packages/pypi/simple typesafe-sdk
+```
+
+### Release Workflow
+
+To release a new version:
+
+1. Ensure your changes are merged into `main`.
+2. Create and push a signed Git tag following the `<upstream>+iomed.<revision>` convention:
+   ```bash
+   git checkout main
+   git pull origin main
+   git tag -s v0.7.5+iomed.2 -m "Release v0.7.5+iomed.2"
+   git push origin v0.7.5+iomed.2
+   ```
+3. GitLab's pull mirror will detect the tag and automatically run the `publish-package` pipeline, building the wheel and publishing it to the registry.
+
 ## Documentation
 
 Learn more in [SDK docs](https://docs.typesafe.ai/go/python-sdk).
