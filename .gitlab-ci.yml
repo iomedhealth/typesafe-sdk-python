@@ -25,7 +25,7 @@ publish-package:
       fi
       echo "Building package version: ${PACKAGE_VERSION}"
       sed -i "s/^version = .*/version = \"${PACKAGE_VERSION}\"/" pyproject.toml
-    - uv build --python python3
+    - uv build --wheel --python python3
     - >
       TWINE_PASSWORD=${CI_JOB_TOKEN}
       TWINE_USERNAME=gitlab-ci-token
