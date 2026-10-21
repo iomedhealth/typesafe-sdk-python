@@ -25,11 +25,11 @@ publish-package:
       fi
       echo "Building package version: ${PACKAGE_VERSION}"
       sed -i "s/^version = .*/version = \"${PACKAGE_VERSION}\"/" pyproject.toml
-    - uv build
+    - uv build --python python3
     - >
       TWINE_PASSWORD=${CI_JOB_TOKEN}
       TWINE_USERNAME=gitlab-ci-token
-      uv run --with twine twine upload
+      uv run --python python3 --with twine twine upload
       --verbose
       --repository-url https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/pypi
       dist/*
