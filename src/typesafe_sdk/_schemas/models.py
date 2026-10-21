@@ -3,9 +3,45 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, RootModel
+
+
+class Format(Enum):
+    png = "png"
+    jpg = "jpg"
+    jpeg = "jpeg"
+
+
+class Asset(BaseModel):
+    type: Literal["image"] | None = Field(None, description="Identifies an image asset.", title="Type")
+    format: Format | None = Field(
+        None, description="The image format, required with data_base64. The actual format is detected from the bytes.", title="Format"
+    )
+    data_base64: str | None = Field(None, description="Base64-encoded image data.", title="Data Base64")
+    part: str | None = Field(
+        None, description="In a multipart request, the name of the image part this asset uses. With part, data_base64 is ignored.", title="Part"
+    )
+
+
+class BoxCoordinates(BaseModel):
+    top: float = Field(..., description="Top edge of the box, as a fraction of image height from the top (0-1).", examples=[0.2], title="Top")
+    bottom: float = Field(
+        ..., description="Bottom edge of the box, as a fraction of image height from the top (0-1).", examples=[0.66], title="Bottom"
+    )
+    left: float = Field(
+        ..., description="Left edge of the box, as a fraction of image width from the left (0-1).", examples=[0.19], title="Left"
+    )
+    right: float = Field(
+        ..., description="Right edge of the box, as a fraction of image width from the left (0-1).", examples=[0.68], title="Right"
+    )
+
+
+class BoxQuestion(BaseModel):
+    type: Literal["box"] = Field(..., description="Identifies a box question.", title="Type")
+    instructions: str | dict[str, Any] | list[Any] | None = Field(None, description="What to locate in the image.", title="Instructions")
 
 
 class ChoiceAnswer(BaseModel):
@@ -175,9 +211,18 @@ class ValidationError(BaseModel):
     )
 
 
-class Answer(RootModel[NoulAnswer | ScoreAnswer | ChoiceAnswer]):
-    root: NoulAnswer | ScoreAnswer | ChoiceAnswer = Field(
-        ..., description="An answer whose type matches the corresponding question.", discriminator="type"
+class BoxAnswer(BaseModel):
+    type: Literal["box"] = Field(..., description="Identifies a box answer.", examples=["box"], title="Type")
+    box: BoxCoordinates = Field(
+        ...,
+        description="The box's edges as fractions of image height and width, from 0 to 1. Each coordinate is the expected value of its edge's predicted position.",
+        examples=[{"bottom": 0.66, "left": 0.19, "right": 0.68, "top": 0.2}],
+    )
+    confidence: float | None = Field(
+        ...,
+        description="Confidence for the given box, from 0 to 1, with 1 being more confident. Null when the model does not provide confidence.",
+        examples=[None, 0.9],
+        title="Confidence",
     )
 
 
@@ -190,22 +235,24 @@ class HTTPValidationError(BaseModel):
     )
 
 
-class Question(RootModel[NoulQuestion | ChoiceQuestion | ScoreQuestion]):
-    root: NoulQuestion | ChoiceQuestion | ScoreQuestion = Field(..., description="A question about the supplied content.", discriminator="type")
+class Question(RootModel[NoulQuestion | ChoiceQuestion | ScoreQuestion | BoxQuestion]):
+    root: NoulQuestion | ChoiceQuestion | ScoreQuestion | BoxQuestion = Field(
+        ..., description="A question about the supplied content.", discriminator="type"
+    )
 
 
 class SystemOneRequest(BaseModel):
-    state: str | dict[str, Any] | list[Any] = Field(
-        ...,
-        description="The content all questions in this request refer to.",
-        examples=["I was charged twice. Please help.", {"message": "Please help.", "subject": "Duplicate charge"}],
-        title="State",
-    )
     model: str = Field(
         ...,
         description="Name or alias of the model to use. Available names are returned by GET /v1/models.",
         examples=["jev-latest"],
         title="Model",
+    )
+    state: str | dict[str, Any] | list[Any] = Field(
+        ...,
+        description="The content all questions in this request refer to.",
+        examples=["I was charged twice. Please help.", {"message": "Please help.", "subject": "Duplicate charge"}],
+        title="State",
     )
     questions: dict[str, Question] = Field(
         ...,
@@ -213,6 +260,18 @@ class SystemOneRequest(BaseModel):
         examples=[{"billing": {"instructions": "Is this message about billing?", "type": "noul"}}],
         min_length=1,
         title="Questions",
+    )
+    assets: dict[str, Asset] | None = Field(
+        None,
+        description="Media assets keyed by an opaque placeholder (recommend a per-image UUID). Each placeholder, wherever it appears as or inside a string in state, question instructions, or criteria, is replaced with the asset. Image assets require a vision-language model.",
+        min_length=1,
+        title="Assets",
+    )
+
+
+class Answer(RootModel[NoulAnswer | ChoiceAnswer | ScoreAnswer | BoxAnswer]):
+    root: NoulAnswer | ChoiceAnswer | ScoreAnswer | BoxAnswer = Field(
+        ..., description="An answer whose type matches the corresponding question.", discriminator="type"
     )
 
 

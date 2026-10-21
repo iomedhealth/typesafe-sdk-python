@@ -8,7 +8,19 @@ from pydantic_core import from_json
 
 from tests.conftest import ClientFactory
 from tests.helpers import system_one
-from typesafe_sdk import AsyncTypeSafeClient, Choice, JSONContent, JSONValue, Noul, Questions, Score, TypeSafeClient
+from typesafe_sdk import (
+    AsyncTypeSafeClient,
+    Choice,
+    Content,
+    ContentValue,
+    Image,
+    JSONContent,
+    JSONValue,
+    Noul,
+    Questions,
+    Score,
+    TypeSafeClient,
+)
 from typesafe_sdk._core.json import _fallback
 
 
@@ -22,18 +34,22 @@ def test_str_subclasses_fallback_to_strings() -> None:
 
 
 def test_json_value_and_state_exclude_top_level_none() -> None:
-    # `state` is annotated with the `JSONContent` alias.
+    # `state` is annotated with the `Content` alias.
     for client in (AsyncTypeSafeClient, TypeSafeClient):
-        assert get_type_hints(client.system_one)["state"] is JSONContent
-    # Both JSON aliases forbid a bare top-level `None`, while accepting the text, mapping, and
+        assert get_type_hints(client.system_one)["state"] is Content
+    # The JSON and content aliases forbid a bare top-level `None`, while accepting the text, mapping, and
     # sequence forms — and `None` remains valid *nested* as a value.
-    for alias in (JSONContent, JSONValue):
+    for alias in (JSONContent, JSONValue, Content, ContentValue):
         adapter: TypeAdapter[object] = TypeAdapter(alias)
         with pytest.raises(ValidationError):
             adapter.validate_python(None)
         assert adapter.validate_python("text") == "text"
         assert adapter.validate_python({"key": None}) == {"key": None}
         assert adapter.validate_python(["item", None]) == ["item", None]
+    # Content aliases keep `Image` objects as-is.
+    image = Image(b"\x89PNG\r\n\x1a\n")
+    for alias in (Content, ContentValue):
+        assert TypeAdapter(alias).validate_python([{"photo": image}])[0]["photo"] is image
 
 
 @pytest.mark.parametrize("raw", [False, True])

@@ -22,9 +22,9 @@ def _fallback(value: object) -> object:
     raise TypeError(f"Encoding objects of type {type(value).__name__} is unsupported")
 
 
-def serialize(value: object) -> bytes:
+def serialize(value: object, context: object = None, *, exclude_none: bool = False) -> bytes:
     # JSON has no NaN/Infinity tokens; emit them as the strings "NaN"/"Infinity"/"-Infinity" instead.
-    return to_json(value, fallback=_fallback, inf_nan_mode="strings")
+    return to_json(value, fallback=_fallback, context=context, exclude_none=exclude_none, inf_nan_mode="strings")
 
 
 def deserialize(content: bytes) -> Any:

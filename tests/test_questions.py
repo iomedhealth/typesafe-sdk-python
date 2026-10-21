@@ -11,6 +11,7 @@ from pydantic_core import from_json, to_json
 from tests.conftest import ClientFactory
 from typesafe_sdk import (
     AsyncTypeSafeClient,
+    Box,
     Choice,
     ChoiceModel,
     Noul,
@@ -31,15 +32,16 @@ def test_normalization_preserves_objects() -> None:
         "noul": Noul(instructions="Spam?"),
         "choice": Choice(instructions="Tone?", criteria={"calm": None}),
         "score": Score(instructions="Quality?", criteria=["bad", "good"]),
+        "box": Box(instructions="The dog"),
     }
     result = normalize_questions(questions)
-    assert result["noul"] is questions["noul"]
-    assert result["choice"] is questions["choice"]
-    assert result["score"] is questions["score"]
+    for name, question in questions.items():
+        assert result[name] is question
     assert from_json(to_json(result)) == {
         "noul": {"type": "noul", "instructions": "Spam?"},
         "choice": {"type": "choice", "instructions": "Tone?", "criteria": {"calm": None}},
         "score": {"type": "score", "instructions": "Quality?", "criteria": ["bad", "good"]},
+        "box": {"type": "box", "instructions": "The dog"},
     }
 
 
@@ -49,6 +51,7 @@ def test_normalization_preserves_objects() -> None:
         {"type": "noul", "instructions": "Spam?", "weight": 3, "criteria": {"future": "kept"}},
         {"type": "future", "nested": {"k": None}},
         {"type": "score", "criteria": ["good"], "weight": 3},
+        {"type": "box", "instructions": {"find": "the dog"}},
     ],
 )
 def test_normalization_preserves_raw_questions(raw: dict[str, Any]) -> None:
@@ -87,11 +90,13 @@ def test_raw_questions_require_structural_keys(invalid: object) -> None:
         (Noul(criteria={"true": "spam"}), {"type": "noul", "criteria": {"true": "spam"}}),
         (Choice(criteria={"a": None}), {"type": "choice", "criteria": {"a": None}}),
         (Score(criteria=["good"]), {"type": "score", "criteria": ["good"]}),
+        (Box(), {"type": "box"}),
+        (Box(instructions=["The", None]), {"type": "box", "instructions": ["The", None]}),
         (Noul(instructions="", criteria={}), {"type": "noul", "instructions": "", "criteria": {}}),
         (Noul(instructions=[], criteria={"true": None}), {"type": "noul", "instructions": [], "criteria": {"true": None}}),
     ],
 )
-def test_direct_encoding_omits_only_default_fields(question: Noul | Choice | Score, expected: dict[str, Any]) -> None:
+def test_direct_encoding_omits_only_default_fields(question: Noul | Choice | Score | Box, expected: dict[str, Any]) -> None:
     assert from_json(to_json(question)) == expected
     assert question.model_dump() == expected
 
@@ -129,6 +134,7 @@ def test_invalid_typed_question_is_rejected_on_construction() -> None:
         (Noul, {}),
         (Choice, {"criteria": {"a": None}}),
         (Score, {"criteria": ["good"]}),
+        (Box, {}),
     ],
 )
 def test_typed_questions_reject_unknown_fields(question_type: Any, kwargs: dict[str, Any]) -> None:

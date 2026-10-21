@@ -12,6 +12,21 @@ icon: lucide/history
 - add `system_one_batch` to both clients for `POST /v1/systemone/batch`, a self-hosted System One extension that
   evaluates up to 50 states per request; new public types `SystemOneBatchItem` and `SystemOneBatchResponse`
 
+## v0.7.5 (2026-10-14)
+
+### Documentation
+
+- split usage guide into Basic and Advanced pages
+- add docs for working with images
+- add docs for `Box` type
+
+### Features
+
+- enable request body compression with `zstd` by default (non-official APIs may not support this immediately)
+- support `Image` assets from raw bytes, file paths, base64 strings, and PIL objects
+- support `Box` questions and answers
+- reference assets in text with `attach_assets`
+
 ## v0.7.4 (2026-10-09)
 
 ### Bug fixes
@@ -89,4 +104,4 @@ icon: lucide/history
 
 ## v0.5.7 (2026-09-14)
 
-This is the initial public release of TypeSafe Python SDK. Learn more in the [documentation](https://docs.typesafe.ai/sdk/python).
+This is the initial public release of TypeSafe Python SDK. Learn more in the [documentation](https://docs.typesafe.ai/go/python-sdk).

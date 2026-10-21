@@ -9,6 +9,7 @@
     'transport',
     'http_client',
     'base_url',
+    'compression',
   ])
 # ---
 # name: test_constructor_kwargs[TypeSafeClient]
@@ -21,6 +22,7 @@
     'transport',
     'http_client',
     'base_url',
+    'compression',
   ])
 # ---
 # name: test_public_members[typesafe_sdk.constants]
@@ -37,11 +39,19 @@
 # name: test_public_members[typesafe_sdk]
   list([
     'Answer',
+    'Asset',
     'AsyncModels',
     'AsyncTypeSafeClient',
+    'Box',
+    'BoxAnswer',
+    'BoxCoordinates',
+    'BoxModel',
     'Choice',
     'ChoiceAnswer',
     'ChoiceModel',
+    'Content',
+    'ContentValue',
+    'Image',
     'JSONContent',
     'JSONValue',
     'ListModelsResponse',

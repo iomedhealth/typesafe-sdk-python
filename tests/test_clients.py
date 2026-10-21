@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from importlib.metadata import version
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx2
 import pytest
@@ -38,6 +38,7 @@ from typesafe_sdk import (
     TypeSafeUnprocessableEntityError,
     Usage,
 )
+from typesafe_sdk._core import compression
 
 RESULT = {
     "model": "jev-latest",
@@ -193,6 +194,49 @@ async def test_raw_question_passthrough(clients: ClientFactory) -> None:
         return httpx2.Response(200, content=to_json(RESULT))
 
     await system_one(clients(handler), state="hi", questions=questions)
+
+
+@pytest.mark.parametrize("option, encoding", [(None, "zstd"), ("zstd", "zstd"), (False, None)])
+async def test_compression(clients: ClientFactory, option: Literal["zstd", False] | None, encoding: str | None) -> None:
+    state = "x" * compression.MIN_COMPRESSED_BODY_LENGTH
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            assert "content-encoding" not in request.headers
+            return httpx2.Response(200, json={"models": [CARD]})
+        assert request.headers.get("content-encoding") == encoding
+        assert from_json(request.content)["state"] == state
+        return httpx2.Response(200, content=to_json(RESULT))
+
+    client = clients(handler, compression=option)
+    await system_one(client, state=state, questions={"spam": Noul(instructions="Spam?")})
+    await models(client)
+
+
+async def test_compression_skips_small_bodies(clients: ClientFactory) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert "content-encoding" not in request.headers
+        return httpx2.Response(200, content=to_json(RESULT))
+
+    await system_one(clients(handler, compression="zstd"), state="x", questions={"spam": Noul(instructions="Spam?")})
+
+
+async def test_compression_without_zstd(clients: ClientFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delitem(compression.COMPRESSORS, "zstd")
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert "content-encoding" not in request.headers
+        return httpx2.Response(200, content=to_json(RESULT))
+
+    state = "x" * compression.MIN_COMPRESSED_BODY_LENGTH
+    await system_one(clients(handler), state=state, questions={"spam": Noul(instructions="Spam?")})
+    with pytest.raises(TypeSafeError, match=r"typesafe-sdk\[zstd\]"):
+        clients(handler, compression="zstd")
+
+
+async def test_invalid_compression(clients: ClientFactory) -> None:
+    with pytest.raises(TypeSafeError, match="compression must be"):
+        clients(lambda request: httpx2.Response(200), compression=cast(Any, "brotli"))
 
 
 # Raw dictionary questions are passed through untouched: the SDK leaves their schema validation to

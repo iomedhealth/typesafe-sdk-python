@@ -14,9 +14,11 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / ".github/scripts"
 INCLUDES = "pyproject.toml\nsrc/\ndocs/changelog.md\n.github/workflows/publish.yml\n"
 
-pytestmark = pytest.mark.skipif(
-    not (SCRIPTS / "sync_public.py").is_file(), reason="Public sync tooling is only available in the dev repository"
-)
+pytestmark = [
+    pytest.mark.skipif(not (SCRIPTS / "sync_public.py").is_file(), reason="Public sync tooling is only available in the dev repository"),
+    # Local Git configuration, such as forced tag signing, breaks the disposable fixture repositories.
+    pytest.mark.skipif(not os.environ.get("CI"), reason="Public sync tests only run in CI"),
+]
 
 
 def git(repo: Path, *args: str) -> str:

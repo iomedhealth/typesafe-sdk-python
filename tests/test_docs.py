@@ -11,6 +11,7 @@ from sybil.evaluators.python import PythonEvaluator
 from sybil.parsers.markdown import CodeBlockParser, PythonCodeBlockParser, SkipParser
 
 import typesafe_sdk
+from tests.conftest import skip_compressed_on_prod
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_FILES = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
@@ -24,6 +25,7 @@ def code_parsers() -> tuple[PythonCodeBlockParser, CodeBlockParser, SkipParser]:
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("live_api_key")
+@skip_compressed_on_prod
 @pytest.mark.parametrize("path", MARKDOWN_FILES, ids=lambda path: str(path.relative_to(ROOT)))
 def test_markdown(path: Path) -> None:
     document = Document.parse(str(path), *code_parsers())
@@ -34,6 +36,7 @@ def test_markdown(path: Path) -> None:
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda path: str(path.relative_to(ROOT)))
 @pytest.mark.integration
 @pytest.mark.usefixtures("live_api_key")
+@skip_compressed_on_prod
 def test_python_doctests(path: Path) -> None:
     document = PythonDocStringDocument.parse(str(path), *code_parsers())
     # Docstring examples are shown on the documented symbol's own page, so they may reference public

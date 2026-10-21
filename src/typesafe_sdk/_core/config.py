@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import httpx2
 
+from typesafe_sdk._core.compression import Compression, Encoding, resolve_compression
 from typesafe_sdk._core.errors import TypeSafeError
 from typesafe_sdk.constants import (
     API_KEY_ENV,
@@ -50,6 +51,7 @@ class Config:
     default_model: str
     timeout: float | httpx2.Timeout
     default_headers: httpx2.Headers = field(repr=False)
+    compression: Encoding | None
 
     @classmethod
     def resolve(
@@ -59,6 +61,7 @@ class Config:
         default_model: str | None,
         timeout: float | httpx2.Timeout | None,
         default_headers: Mapping[str, str] | None,
+        compression: Compression | None,
     ) -> "Config":
         return cls(
             resolve_and_validate_api_key(api_key),
@@ -66,4 +69,5 @@ class Config:
             _resolve_string(default_model, DEFAULT_MODEL_ENV, DEFAULT_MODEL),
             resolve_timeout(DEFAULT_TIMEOUT if timeout is None else timeout),
             httpx2.Headers(default_headers),
+            resolve_compression(compression),
         )

@@ -7,3 +7,5 @@ project-includes = [
 project-excludes = ["tests/typing/negative"]
 python-version = "3.10"
 search-path = ["src", "."]
+# `backports-zstd` only installs before Python 3.14, so it is missing from 3.14+ environments.
+ignore-missing-imports = ["backports.zstd"]
